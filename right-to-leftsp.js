@@ -51,7 +51,7 @@
 	be a nice thing to get working.
 */
 
-var js_eval = eval; // eval redefined later, so the js one
+var js_eval = eval; // eval redefined later, so save the js one
 
 /**************************************************/
 
