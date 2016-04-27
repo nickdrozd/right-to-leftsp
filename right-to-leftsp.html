@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>button test</title>
+</head>
+<body>
+
+<p>Evaluate some Lisp code.</p>
+
+<form>
+	Code:<br>
+	<input type="text" name="input" id="input" />
+	<br>
+</form><br>
+
+
+<button onclick="display()">Eval!</button>
+
+<p id="result"></p>
+
+<script language="javascript" type="text/javascript" src="right_to_leftsp.js"></script>
+
+<script language="javascript">
+window.onload = function () {
+	var inputElement = document.getElementById("input");
+	inputElement.addEventListener("keypress", function(event){
+		console.log('triggered');
+		if (event.keyCode === 13) { // for pressing enter
+			event.preventDefault(); // to prevent other keys from triggering
+			display();
+			return false; // to prevent "bubbling up" (???)
+		}
+	})
+}
+
+function display() {
+	var inputElement = document.getElementById("input");
+	var value = inputElement.value;
+	var code = lisp(value);
+	document.getElementById("result").innerHTML = code;
+	inputElement.value = ""; // to clear the box after entering
+}
+</script>
+
+
+</body>
+</html>
