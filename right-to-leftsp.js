@@ -76,9 +76,10 @@ var js_eval = eval; // eval redefined later, so save the js one
 	Lisp interpreter. It turns out that it's a huge pain
 	to get Arabic script working alongside Roman script
 	(or more generally, to get RtL scripts to get along
-	with LtR scripts). Now it's really just for novelty.
+	with LtR scripts). Now it's really just for a gimmick.
 
-	
+	Other syntactic sugar can be added later, eg 'code
+	for (quote code).
 */
 
 // convert number strings to real numbers
@@ -89,7 +90,6 @@ function atom(token) {
 }
 
 // more special chars can be added later
-// eg 'code for (quote code) 
 function notSpecial(char) {
 	return char != '(' &&
 			char != '$';
@@ -208,8 +208,9 @@ function revParse(codeString) {
 */
 
 
-// primitive functions implemented directly in js
+// PRIMITIVES implemented directly in js
 // TODO: make these take a variable number of args
+// TODO: add primitive list ops?
 var primitives = {
 	'+': function(a,b){return a+b},
 	'-': function(a,b){return a-b},
@@ -218,12 +219,8 @@ var primitives = {
 	'<' : function(a,b){return a<b},
 	'>' : function(a,b){return a>b},
 
-	// truth functions -- these can be derived from IF
-	//'not': function(p){return !p}, // needs another arg
-	'and': function(p,q){return p&&q},
-
 	// truth conditions -- should these be different?
-	'#f' : false,
+	'#f' : false, // include 0?
 	'#t' : true,
 };
 
@@ -295,7 +292,6 @@ function lookup(variable, env) {//debugger;
 
 	// error (if nothing is found)
 	console.log(variable, env);
-
 	throw 'unbound variable!' +
 			"\n" + variable;
 }
@@ -319,7 +315,7 @@ function eval(exp, env) {//debugger;
 	var type = typeof(exp);
 
 	// numbers
-	if (type == 'number')
+	if (type == 'number' || type == 'boolean')
 		return exp;
 
 	//variables
@@ -333,29 +329,30 @@ function eval(exp, env) {//debugger;
 	// SPECIAL FORMS
 
 	// quotation
+	// this needs better output formatting to be useful
 	if (tag == 'quote') {
 		var text = exp[1];
 		return text;
 	}
 
 	// conditionial
-	else if (tag == 'if') {
+	else if (tag == 'if') {//debugger;
 		var cond = exp[1];
 		var then = exp[2];
 		var othw = exp[3];
 
-		if (eval(cond,env)) // which truth does this use?
+		if (eval(cond,env)) // which truth does this use, js or lisp?
 			return eval(then,env);
 		else
 			return eval(othw,env);
 	}
 
 	// definition
-	else if (tag == 'def') {
+	else if (tag == 'def') {//debugger;
 		var variable = exp[1];
 		var value = exp[2];
 
-		//design decision: can variables be redefined?
+		// design decision: can variables be redefined?
 
 		// allow redefinition :
 		/*
@@ -373,22 +370,24 @@ function eval(exp, env) {//debugger;
 			//firstFrame[variable] = eval(value, env);
 
 			firstFrame[variable] = value;
-			return 'defined!';
+			return 'defined!'; // does this need to return something?
 		}
 		else throw 'already defined!';
 	}
 
 	// assignment
-	else if (tag == 'set!') {
+	else if (tag == 'set!') {//debugger;
 		var variable = exp[1];
 		var value = exp[2];
 		var frame = mostRecentFrame(variable, env);
 		var frInd = env.indexOf(frame);
 		frame[variable] = eval(value, env.slice(frInd));
-		return 'set!';
+		return 'set!'; // does this need to return something?
 	}
 
+
 	// TODO: begin statements (internal definitions?)
+
 
 	// function abstraction (ie lambdas)
 	else if (tag == 'fun') {//debugger;
@@ -402,6 +401,12 @@ function eval(exp, env) {//debugger;
 			maybe we could create a tiny dictionary
 			that contained only what's used in the body
 			of the function and attach just that.
+
+			Eg if the exp is (fun (x) (+ a x)),
+			the function only needs to look up a and +,
+			so we could look those up and package
+			{a : 3, + : ...} with the function.
+
 			Major TODO.
 		*/
 
@@ -410,7 +415,31 @@ function eval(exp, env) {//debugger;
 		return ['fun', params, body, funcEnv];
 	}
 
-	// general functions
+	// DERIVED FORMS
+
+	else if (tag == 'not') {//debugger;
+		var A = exp[1];
+		var convertedExp = ['if', A, '#f', '#t'];
+		return eval(convertedExp, env);
+	}
+
+	else if (tag == 'and') {
+		var A = exp[1];
+		var B = exp[2];
+		var convertedExp = ['if', A, B, A];
+		return eval(convertedExp, env);
+	}
+
+	else if (tag == 'or') {
+		var A = ['not', exp[1]];
+		var B = ['not', exp[2]];
+		var and = ['and', A, B];
+		var convertedExp = ['not', and];
+		return eval(convertedExp, env);
+	}
+
+	// GENERAL FUNCTIONS
+
 	else {//debugger;
 		var func = exp[0];
 		var args = exp.slice(1);
@@ -500,13 +529,17 @@ lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) 
 lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
 lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
 
-// list operations (these require better formatting to be useful)
+/*
+list operations don't work right now because of problems
+with higher-order functions, but they should work otherwise
+*/
 
+/*
 lisp('(def nil (quote ()))');
 lisp('(def cons (fun (a b) (fun (m) (m a b))))');
 lisp('(def car (fun (p) (p (fun (a b) a))))');
 lisp('(def cdr (fun (p) (p (fun (a b) b))))');
-
+*/
 
 
 
