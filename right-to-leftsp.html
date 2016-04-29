@@ -1,11 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<title>button test</title>
+	<title>Right-to-Leftsp</title>
 </head>
 <body>
 
-<p>Evaluate some Lisp code.</p>
+<p>
+<i>
+I Lisp it to the left <br>
+I Lisp it to the right <br>
+I Lisp it every day <br>
+I Lisp it every night <br>
+</i>
+<br>
+
+Hey! Look! The following are equivalent: <br>
+
+<ul>
+	<li>
+		(((fun (x) (fun (y) (+ x y))) 3) 4)
+	</li>
+	<li>
+		$(4 (3 (((y x +) (y) fun) (x) fun)))
+	</li>
+	<li>
+		(((fun (x) (fun (y) $(y x +))) 3) 4)
+	</li>
+	<li>
+		$(4 (3 ($(fun (y) (+ x y)) (x) fun)))
+	</li>
+	<li>
+		$$(((fun (x) (fun (y) (+ x y))) 3) 4)
+	</li>
+	<li>
+		$$$(4 (3 (((y x +) (y) fun) (x) fun)))
+	</li>
+	<li>
+		$$$$(((fun (x) (fun (y) (+ x y))) 3) 4)
+	</li>
+</ul>
+
+</p>
 
 <form>
 	Code:<br>
@@ -14,11 +49,11 @@
 </form><br>
 
 
-<button onclick="display()">Eval!</button>
+<button onclick="display()">Evaluate!</button>
 
 <p id="result"></p>
 
-<script language="javascript" type="text/javascript" src="right_to_leftsp.js"></script>
+<script language="javascript" type="text/javascript" src="right-to-leftsp.js"></script>
 
 <script language="javascript">
 window.onload = function () {
@@ -41,6 +76,8 @@ function display() {
 	inputElement.value = ""; // to clear the box after entering
 }
 </script>
+
+
 
 
 </body>
