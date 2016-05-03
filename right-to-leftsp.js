@@ -2,8 +2,9 @@
 	RIGHT-to-LEFTSP
 
 	An interpreter for a dialect of Scheme written
-	right-to-left (or left-to-right, whichever way
-	is cool with you).
+	right-to-left. Or left-to-right, whichever way
+	is cool with you (see the section on the PAR$ER
+	for details).
 
 	It's a work in progress. There remain problems
 	with variable collision (maybe?) when the
@@ -55,13 +56,13 @@ var js_eval = eval; // eval redefined later, so save the js one
 
 /**************************************************/
 
-/* THE PARSER */
+/* THE PAR$ER */
 
 /**
 	The chief (only?) innovation of this Lisp is that
 	it allows for expressions to be evaluated backwards.
 	Affixing a dollar to the beginning of a string causes
-	the parser to deep-reverse the string, ie to reverse
+	the PAR$ER to deep-reverse the string, i.e. to reverse
 	the string and deep-reverse its substrings.
 
 	Substrings can also be reversed without affecting
@@ -76,9 +77,9 @@ var js_eval = eval; // eval redefined later, so save the js one
 	Lisp interpreter. It turns out that it's a huge pain
 	to get Arabic script working alongside Roman script
 	(or more generally, to get RtL scripts to get along
-	with LtR scripts). Now it's really just for a gimmick.
+	with LtR scripts). Now it's really just a gimmick.
 
-	Other syntactic sugar can be added later, eg 'code
+	Other syntactic sugar can be added later, e.g. 'code
 	for (quote code).
 */
 
@@ -98,15 +99,15 @@ function notSpecial(char) {
 function parse(codeString) {
 	var firstChar = codeString[0];
 	
-	// code is an atom
+	// if the code is an atom
 	if (notSpecial(firstChar))
 		return atom(codeString);
 
-	// code needs to be reversed
+	// if the code needs to be reversed
 	if (firstChar == '$')
 		return revParse(codeString.slice(1));
 
-	// code is a list
+	// if the code is a list
 	var result = [];
 	var remainder = codeString.slice(1,-1);
 
@@ -186,16 +187,16 @@ function revParse(codeString) {
 /* THE EVALUATOR */
 
 /**
-	The eval-apply apply model used here is the one
+	The EVAL-APPLY model used here is the one
 	found in chapter four of SICP. Environments are
 	implemented as arrays of dictionaries. It turns
 	out that JavaScript objects are aliased pretty
-	thoroughly, which was a major roadblock.
+	thoroughly, which was (is?) a major roadblock.
 	There's probably a better way to do that (see
 	the section on fun / lambda evaluation for a
 	suggestion.)
 
-	Short keywords have been chosen, namely 'def'
+	Short keywords have been chosen, e.g. 'def'
 	instead of 'define' (like in Python) and 'fun'
 	instead of 'lambda' (because lambdas are not
 	only fun, they're fundamental!).
@@ -207,10 +208,13 @@ function revParse(codeString) {
 	avoid aliasing).
 */
 
+/* ENVIRONMENTS AND FRAMES */
 
 // PRIMITIVES implemented directly in js
+
 // TODO: make these take a variable number of args
 // TODO: add primitive list ops?
+
 var primitives = {
 	'+': function(a,b){return a+b},
 	'-': function(a,b){return a-b},
@@ -220,11 +224,11 @@ var primitives = {
 	'>' : function(a,b){return a>b},
 
 	// truth conditions -- should these be different?
-	'#f' : false, // include 0?
+	'#f' : false,
 	'#t' : true,
 };
 
-// the global environment (an array of dictionaries)
+// the GLOBAL ENVIRONMENT (an array of dictionaries)
 var global_env = [{}, primitives];
 
 // zip vars and vals together (to be added to the env)
@@ -241,6 +245,7 @@ function newFrame(variables, values) {
 
 // some deep copy functions to avoid aliasing
 // do these work properly?
+
 function copyArray(array) {
 	if (typeof(array) != 'object')
 		return array;
@@ -307,9 +312,21 @@ function mostRecentFrame(variable, env) {
 	throw 'you can\'t set an unbound variable!';
 }
 
+// fix the evaluation environment
+// for ease of reading
+function evalInEnv(env) {
+	return function (exp) {
+		return eval(exp,env);
+	};
+}
+
+/* EVAL */
 
 // evaluate an expression in a particular environment
-//(works in tandem with apply)
+// (works in tandem with apply)
+
+// TODO: would using evalInEnv more make things cleaner?
+
 function eval(exp, env) {//debugger;
 	// ATOMS
 	var type = typeof(exp);
@@ -341,7 +358,7 @@ function eval(exp, env) {//debugger;
 		var then = exp[2];
 		var othw = exp[3];
 
-		if (eval(cond,env)) // which truth does this use, js or lisp?
+		if (eval(cond,env)) // uses JS truth conditions
 			return eval(then,env);
 		else
 			return eval(othw,env);
@@ -389,7 +406,7 @@ function eval(exp, env) {//debugger;
 	// TODO: begin statements (internal definitions?)
 
 
-	// function abstraction (ie lambdas)
+	// function abstraction (i.e. lambdas)
 	else if (tag == 'fun') {//debugger;
 
 		var params = exp[1];
@@ -411,11 +428,17 @@ function eval(exp, env) {//debugger;
 		*/
 
 		var funcEnv = copyEnv(env);
+		var taggedFunc = ['fun', params, body, funcEnv];
 
-		return ['fun', params, body, funcEnv];
+		return taggedFunc;
 	}
 
 	// DERIVED FORMS
+
+	// TODO: cond (convert to if)
+
+	/* can these be handled by the PAR$ER?
+		if so, should they be? */
 
 	else if (tag == 'not') {//debugger;
 		var A = exp[1];
@@ -451,7 +474,7 @@ function eval(exp, env) {//debugger;
 
 		// TODO: make this less ugly
 		/* TODO: make primitive functions take
-				take a variable number of arguments */
+				a variable number of arguments */
 		if (func in primitives) {
 			var primFunc = primitives[func];
 			var arg_0 = fixedEnvEval(args[0]);
@@ -469,16 +492,11 @@ function eval(exp, env) {//debugger;
 	}
 }
 
-// fix the evaluation environment
-// for ease of reading
-function evalInEnv(env) {
-	return function (exp) {
-		return eval(exp,env);
-	};
-}
+/* APPLY */
 
 // apply function to arguments
 // (works in tandem with eval)
+
 function apply(func, args) {//debugger;
 	if (func[0] != 'fun')
 		throw 'application error';
