@@ -1,58 +1,48 @@
-/**
-	RIGHT-to-LEFTSP
+/* 
+	MODIFYING RIGHT-TO-LEFTSP 
 
-	An interpreter for a dialect of Scheme written
-	right-to-left. Or left-to-right, whichever way
-	is cool with you (see the section on the PAR$ER
-	for details).
+	If you want to use Right-to-Leftsp but you don't 
+	like the superficial language choices that have been 
+	made, go ahead and change them! If you think 'fun' 
+	is a dumb keyword to use for function abstraction, 
+	change it back to 'lambda', or, even better, change 
+	it to something else! Use a different language!
 
-	It's a work in progress. There remain problems
-	with variable collision (maybe?) when the
-	lambdas get nested.
-
-	For example, if we say
-
-	> (def addn 
-		(fun (n) 
-			(fun (z) 
-				(+ z n))))
-
-	and
-
-	> (def apply 
-		(fun (f x) 
-			(f x)))
-
-	then
-
-	> (apply (addn 3) 
-			(apply (addn 2) 
-					5))
-
-	produces an error, even though less complex
-	combinations involving those functions don't.
-
-	Still, it's able to compute some nontrivial
-	Lisp code. For example, the anonymous recursive
-
-	> (((fun (f) 
-			(f f)) 
-		(fun (t) 
-			(fun (n) 
-				(if (< n 2) 
-					n 
-					(+ n 
-						((t t) (- n 1))))))) 
-		9)
-
-	correctly evaluates to 45 (the 9th triangular number).
-
-	For some reason the general Y-combinator doesn't work
-	(see the end of the code for definitions). That would
-	be a nice thing to get working.
+	You can also change the list separators. If you think 
+	it's inappropriate to make curly braces equivalent 
+	with parentheses, change isOpenParen and isCloseParen 
+	accordingly. On the other hand, if you want to use 
+	angle brackets or slashes or some other weird crap, 
+	add them in! (Just make sure they don't conflict 
+	with the basic arithmetic functions!)
 */
 
-var js_eval = eval; // eval redefined later, so save the js one
+/* keywords */
+
+const QUOTE_KEY = 'quote';
+const IF_KEY = 'if';
+const DEF_KEY = 'def';
+const SET_KEY = 'set!';
+const LAMBDA_KEY = 'fun';
+const BEGIN_KEY = 'begin';
+
+/* syntax */
+
+function isOpenParen(char) {
+	return char == '(' || 
+			char == '[' || 
+			char == '{';
+}
+
+function isCloseParen(char) {
+	return char == ')' || 
+			char == ']' || 
+			char == '}';
+}
+
+/* FLAGS */
+
+var DEBUG = 0;
 
 /**************************************************/
 
@@ -81,6 +71,23 @@ var js_eval = eval; // eval redefined later, so save the js one
 
 	Other syntactic sugar can be added later, e.g. 'code
 	for (quote code).
+
+	Oh, and did you know that parentheses, square 
+	brackets, and curly braces can all be used 
+	interchangeably? Neat, right?
+*/
+
+/*
+	NOTE: This parser was written before I knew anything 
+	about how parsers are supposed to work. In 
+	particular, it's clearly the work of someone who 
+	hasn't thought to tokenize input before parsing. 
+	It's a miracle that the thing works at all, 
+	especially considering that it has the reverse-$ 
+	thing (which, in hindsight, is actually pretty cool.)
+
+	The whole thing needs to be rewritten and broken 
+	into smaller pieces.
 */
 
 // convert number strings to real numbers
@@ -92,7 +99,7 @@ function atom(token) {
 
 // more special chars can be added later
 function notSpecial(char) {
-	return char != '(' &&
+	return !(isOpenParen(char)) &&
 			char != '$';
 }
 
@@ -141,9 +148,9 @@ function parse(codeString) {
 			var i = revSwitch ? 2 : 1;
 
 			while (close_paren < open_paren) {
-				if (remainder[i] == '(')
+				if (isOpenParen(remainder[i]))
 					open_paren += 1;
-				if (remainder[i] == ')')
+				if (isCloseParen(remainder[i]))
 					close_paren += 1;
 				i += 1;
 			}
@@ -163,6 +170,7 @@ function parse(codeString) {
 				return result;
 		}
 	}
+
 	return result;
 }
 
@@ -184,361 +192,434 @@ function revParse(codeString) {
 
 /***************************************************/
 
-/* THE EVALUATOR */
+/*
+	EVAL / APPLY
 
-/**
-	The EVAL-APPLY model used here is the one
-	found in chapter four of SICP. Environments are
-	implemented as arrays of dictionaries. It turns
-	out that JavaScript objects are aliased pretty
-	thoroughly, which was (is?) a major roadblock.
-	There's probably a better way to do that (see
-	the section on fun / lambda evaluation for a
-	suggestion.)
+	The interpreter consists of two mutually recursive 
+	functions: eval and apply. eval takes as arguments 
+	an expression and an environment. It dispatches on 
+	the type of the expression and acts accordingly. In 
+	some cases, nothing interesting happens. For 
+	example, if the expression is a quote expression, 
+	eval will simply return the quoted text. The 
+	interesting case is function application. In this 
+	case, the expression's operator and operands are all 
+	evaluated. If the operator is a lambda expression, 
+	the evaluation environment gets bound to it. 
 
-	Short keywords have been chosen, e.g. 'def'
-	instead of 'define' (like in Python) and 'fun'
-	instead of 'lambda' (because lambdas are not
-	only fun, they're fundamental!).
+	Then, the evaluated function and arguments are passed 
+	to apply. apply extends the evaluation environment 
+	by creating a new frame wherein the arguments are 
+	bound to the function parameters. The body of the 
+	function is then passed back to eval, where it will 
+	get evaluated in the extended evaluation environment.
 
-	Besides EVAL and APPLY, the major components
-	of the interpreter, there are a few utility
-	functions for dealing with environments
-	(including a few for copying them so as to
-	avoid aliasing).
+	Example: say the environment is the basic global_env 
+	and the expression is ((fun (n) (+ n 4)) 5). eval 
+	attaches the global_env to the lambda expression and 
+	then passes it and 5 (which is self-evaluating) to 
+	apply. apply creates a new frame wherein n is defined 
+	to be 5. Then that extended environment and the 
+	function body, (+ n 4), are passed back to eval. 
+	When eval looks up the values of the variables + and 
+	n, it will find them both -- + because it's defined 
+	in the lowest level of the global_env, and n because 
+	it's defined in the environment extension. eval then 
+	applies the value of + (which in this implementation 
+	is an actual JavaScript function) to 4 and 5, 
+	returning 9 as the answer.
 */
 
-/* ENVIRONMENTS AND FRAMES */
+/* EVAL */
 
-// PRIMITIVES implemented directly in js
+function eval(exp, env) {
 
-// TODO: make these take a variable number of args
-// TODO: add primitive list ops?
+	const envEval = function(exp) {
+		return eval(exp, env);
+	}
 
-var primitives = {
+	// numbers etc
+	if (isSelfEvaluating(exp))
+		return exp;
+
+	// variables
+	else if (isVariable(exp))
+		return lookup(exp, env);
+
+	// quotations
+	else if (isQuote(exp))
+		return quotedText(exp);
+
+	// conditionals
+	else if (isIf(exp)) {
+		const test = ifTest(exp);
+		const then = ifThen(exp);
+		const othw = ifOthw(exp);
+
+		if (isTrue(envEval(test)))
+			return envEval(then);
+		else
+			return envEval(othw);
+	}
+		
+	// definition
+	else if (isDef(exp)) {
+		const variable = defVar(exp);
+		const value = defVal(exp);
+		const evalVal = envEval(value);
+
+		return defineVar(variable, evalVal, env);
+	}
+
+	// assignment
+	else if (isAss(exp)) {
+		const variable = assVar(exp);
+		const value = assVal(exp);
+
+		return setVar(variable, value, env);
+	}
+
+	// lambdas
+	else if (isLambda(exp)) { if (DEBUG) debugger;
+		const taggedLambda = 
+			attachEnv(exp, env);
+
+		return taggedLambda;
+	}
+
+	// begins
+	else if (isBegin(exp)) {
+		const actions = 
+			beginActions(exp);
+
+		return evalSeq(actions, env);
+	}
+
+	// function application
+	else {
+		const func = getFunc(exp);
+		const args = getArgs(exp);
+		const evFunc = envEval(func);
+		const evArgs = args.map(envEval);
+
+		if (isPrimitive(func))
+			return applyPrimitive(evFunc, evArgs)
+
+		return apply(evFunc, evArgs);
+	}
+}
+
+/* APPLY */
+
+function apply(func, args) { if (DEBUG) debugger;
+	const params = getParams(func);
+	const body = getBody(func);
+	const env = getEnv(func);
+
+	const appEnv = 
+		extendEnv(params, args, env);
+
+	return evalSeq(body, appEnv);
+}
+
+/* eval / apply helpers */
+
+function evalSeq(exps, env) { if (DEBUG) debugger;
+	const first = firstExp(exps);
+
+	if (isLastExp(exps))
+		return eval(first, env);
+
+	else {
+		eval(first, exps);
+		return evalSeq(restExps(exps), env);
+	}
+}
+
+function applyPrimitive(func, args) {
+	const arglist = 
+		Array.prototype.slice.call(arguments)[1];
+
+	return func.apply(this, arglist);
+}
+
+/* PUT IT ALL TOGETHERS */
+
+function lisp(codeString) {
+	return eval(parse(codeString), global_env);
+}
+
+/***************************************************/
+
+/*
+	ENVIRONMENTS AND PRIMITIVE FUNCTIONS
+*/
+
+/* constructors */
+
+function Env(frame, enclosure) {
+	this.frame = frame;
+	this.enclosure = enclosure;
+}
+
+function makeFrame(vars, vals) {
+	const frame = {};
+
+	for (var i = 0; i < vars.length; i++)
+		frame[vars[i]] = vals[i];
+
+	return frame;
+}
+
+function extendEnv(vars, vals, base) {
+	const frame = makeFrame(vars, vals);
+	const extEnv = new Env(frame, base);
+	return extEnv;
+}
+
+/* global_env and primitives */
+
+const primitives = {
+	// arithmetic
 	'+': function(a,b){return a+b},
 	'-': function(a,b){return a-b},
 	'*': function(a,b){return a*b},
 	'/': function(a,b){return a/b},
 	'<' : function(a,b){return a<b},
 	'>' : function(a,b){return a>b},
+	'=' : function(a,b){return a==b},
+
+	// types
+	'null?' : function(s){return s.length==0},
 
 	// truth conditions -- should these be different?
 	'#f' : false,
 	'#t' : true,
-};
-
-// the GLOBAL ENVIRONMENT (an array of dictionaries)
-var global_env = [{}, primitives];
-
-// zip vars and vals together (to be added to the env)
-function newFrame(variables, values) {
-	// error
-	if (variables.length != values.length)
-		throw 'var val mismatch!'
-
-	var frame = {};
-	for (var i = 0; i < variables.length; i++)
-		frame[variables[i]] = values[i];
-	return frame;
 }
 
-// some deep copy functions to avoid aliasing
-// do these work properly?
+const empty_env = [];
 
-function copyArray(array) {
-	if (typeof(array) != 'object')
-		return array;
-	var arrayCopy = [];
-	for (var i = 0; i < array.length; i++) {
-		if (typeof(array[i]) != 'object')
-			arrayCopy[i] = array[i];
-		else
-			arrayCopy[i] = copyArray(array[i]);
-	}
-	return arrayCopy;
+function isEmptyEnv(env) {
+	return env == empty_env;
 }
 
-function copyFrame(frame) {//debugger;
-	var keys = copyArray(Object.keys(frame));
-	var frameCopy = {};
-	for (var i = 0; i < keys.length; i++)
-		frameCopy[keys[i]] = copyArray(frame[keys[i]]);
-	return frameCopy;
+const base_env = new Env(primitives, empty_env);
+
+const global_env = new Env({}, base_env)
+
+/* variable lookup */
+
+const _UNBOUND = '_UNBOUND';
+
+function lookup(variable, env) { if (DEBUG) debugger;
+	if (isEmptyEnv(env)) 
+		return _UNBOUND;
+
+	else if (variable in env.frame)
+		return env.frame[variable];
+
+	else return lookup(variable, env.enclosure);
 }
 
-function copyEnv(env) {
-	envCopy = [];
-	for (var i = 0; i < env.length; i++) {
-		frameCopy = copyFrame(env[i]);
-		envCopy.push(frameCopy);
-	}
-	return envCopy;
+/* environment modification */
+
+function defineVar(variable, value, env) { if (DEBUG) debugger;
+	return env.frame[variable] = value;
 }
 
-// add a new frame to the env
-function extendEnv(frame, env) {
-	var envCopy = copyEnv(env);
-	envCopy.unshift(frame);
-	return envCopy;
-};
+function setVar(variable, value, env) {
+	if (isEmptyEnv(env)) {
+		console.log(`unbound variable: ${variable}`);
+		return _UNBOUND;
+	}
 
-// return the value of the earliest occurence
-// of the variable in the env
-function lookup(variable, env) {//debugger;
-	for (i = 0; i < env.length; i++) 
-		if (variable in env[i]) {
-			var value = env[i][variable];
-			if (value in primitives)
-				return primitives[value];
-			else
-				return eval(value, env.slice(i));
-		}
+	const frame = env.frame;
+	const enclosure = env.enclosure;
 
-	// error (if nothing is found)
-	console.log(variable, env);
-	throw 'unbound variable!' +
-			"\n" + variable;
+	if (variable in frame)
+		return frame[variable] = value;
+
+	else return setVar(variable, value, enclosure); 
 }
 
-// find the earliest frame in which the var occurs
-// (used by set!)
-function mostRecentFrame(variable, env) {
-	for (i = 0; i < env.length; i++)
-		if (variable in env[i])
-			return env[i];
+/***************************************************/
 
-	// error (if nothing is found)
-	throw 'you can\'t set an unbound variable!';
+/* low-level helpers */
+
+function isSelfEvaluating(exp) {
+	const type = typeof(exp);
+	return type == 'number' || type == 'boolean';
 }
 
-// fix the evaluation environment
-// for ease of reading
-function evalInEnv(env) {
-	return function (exp) {
-		return eval(exp,env);
-	};
+function isVariable(exp) {
+	return typeof(exp) == 'string';
 }
 
-/* EVAL */
-
-// evaluate an expression in a particular environment
-// (works in tandem with apply)
-
-// TODO: would using evalInEnv more make things cleaner?
-
-function eval(exp, env) {//debugger;
-	// ATOMS
-	var type = typeof(exp);
-
-	// numbers
-	if (type == 'number' || type == 'boolean')
-		return exp;
-
-	//variables
-	if (type == 'string')
-		return lookup(exp, env);
-
-	// non-atoms: special and derived
-
-	var tag = exp[0];
-
-	// SPECIAL FORMS
-
-	// quotation
-	// this needs better output formatting to be useful
-	if (tag == 'quote') {
-		var text = exp[1];
-		return text;
-	}
-
-	// conditionial
-	else if (tag == 'if') {//debugger;
-		var cond = exp[1];
-		var then = exp[2];
-		var othw = exp[3];
-
-		if (eval(cond,env)) // uses JS truth conditions
-			return eval(then,env);
-		else
-			return eval(othw,env);
-	}
-
-	// definition
-	else if (tag == 'def') {//debugger;
-		var variable = exp[1];
-		var value = exp[2];
-
-		// design decision: can variables be redefined?
-
-		// allow redefinition :
-		/*
-		env[0][variable] = value;
-		return 'defined!';
-		*/
-
-		//  forbid redefinition (use set! instead) :
-		if (isNaN(env[variable])) {
-			var firstFrame = env[0];
-
-			/* should the value be evaluated upon definition
-				or only during lookup? */
-
-			//firstFrame[variable] = eval(value, env);
-
-			firstFrame[variable] = value;
-			return 'defined!'; // does this need to return something?
-		}
-		else throw 'already defined!';
-	}
-
-	// assignment
-	else if (tag == 'set!') {//debugger;
-		var variable = exp[1];
-		var value = exp[2];
-		var frame = mostRecentFrame(variable, env);
-		var frInd = env.indexOf(frame);
-		frame[variable] = eval(value, env.slice(frInd));
-		return 'set!'; // does this need to return something?
-	}
-
-
-	// TODO: begin statements (internal definitions?)
-
-
-	// function abstraction (i.e. lambdas)
-	else if (tag == 'fun') {//debugger;
-
-		var params = exp[1];
-		var body = exp[2];
-
-		// package the function with the current env
-
-		/* does the entire env need to be packaged?
-			maybe we could create a tiny dictionary
-			that contained only what's used in the body
-			of the function and attach just that.
-
-			Eg if the exp is (fun (x) (+ a x)),
-			the function only needs to look up a and +,
-			so we could look those up and package
-			{a : 3, + : ...} with the function.
-
-			Major TODO.
-		*/
-
-		var funcEnv = copyEnv(env);
-		var taggedFunc = ['fun', params, body, funcEnv];
-
-		return taggedFunc;
-	}
-
-	// DERIVED FORMS
-
-	// TODO: cond (convert to if)
-
-	/* can these be handled by the PAR$ER?
-		if so, should they be? */
-
-	else if (tag == 'not') {//debugger;
-		var A = exp[1];
-		var convertedExp = ['if', A, '#f', '#t'];
-		return eval(convertedExp, env);
-	}
-
-	else if (tag == 'and') {
-		var A = exp[1];
-		var B = exp[2];
-		var convertedExp = ['if', A, B, A];
-		return eval(convertedExp, env);
-	}
-
-	else if (tag == 'or') {
-		var A = ['not', exp[1]];
-		var B = ['not', exp[2]];
-		var and = ['and', A, B];
-		var convertedExp = ['not', and];
-		return eval(convertedExp, env);
-	}
-
-	// GENERAL FUNCTIONS
-
-	else {//debugger;
-		var func = exp[0];
-		var args = exp.slice(1);
-
-		// for convenience (because we call env often)
-		var fixedEnvEval = evalInEnv(env);
-
-		// primitives
-
-		// TODO: make this less ugly
-		/* TODO: make primitive functions take
-				a variable number of arguments */
-		if (func in primitives) {
-			var primFunc = primitives[func];
-			var arg_0 = fixedEnvEval(args[0]);
-			var arg_1 = fixedEnvEval(args[1]);
-			return primFunc(arg_0, arg_1);
-		}
-
-		// compound functions
-		else {
-			var evExp = exp.map(fixedEnvEval);
-			var evFunc = evExp[0];
-			var evArgs = evExp.slice(1);
-			return apply(evFunc, evArgs);
-		}
-	}
+function getTag(exp) {
+	return exp[0];
 }
 
-/* APPLY */
-
-// apply function to arguments
-// (works in tandem with eval)
-
-function apply(func, args) {//debugger;
-	if (func[0] != 'fun')
-		throw 'application error';
-
-	var parameters = func[1];
-	var body = func[2];
-	var funcEnv = func[3];
-
-	var evalFrame = newFrame(parameters, args);
-	var evalEnv = extendEnv(evalFrame, funcEnv);
-
-	return eval(body, evalEnv);
+function hasTag(exp, tag) {
+	return getTag(exp) == tag;
 }
 
-/**************************************************/
+/* quotation */
 
-/* PUT IT ALL TOGETHER */
+function isQuote(exp) {
+	return hasTag(exp, QUOTE_KEY);
+}
 
-// parse, then evaluate in the global environment
+function quotedText(exp) {
+	return exp[1];
+}
 
-/* TODO: output arrays as lisp code
-		eg ['*',3,n] as (* 3 n) */
+/* if */
 
-function lisp(codeString) {
-	return eval(parse(codeString), global_env);
-} 
+function isIf(exp) {
+	return hasTag(exp, IF_KEY);
+}
+
+function ifTest(exp) {
+	return exp[1];
+}
+
+function ifThen(exp) {
+	return exp[2];
+}
+
+function ifOthw(exp) {
+	return exp[3];
+}
+
+function isTrue(exp) {
+	return exp != false;
+}
+
+/* def / ass */
+
+function isDef(exp) {
+	return hasTag(exp, DEF_KEY);
+}
+
+function defVar(exp) {
+	return exp[1];
+}
+
+function defVal(exp) {
+	return exp[2];
+}
+
+function isAss(exp) {
+	return hasTag(exp, SET_KEY);
+}
+
+function assVar(exp) {
+	return exp[1];
+}
+
+function assVal(exp) {
+	return exp[2];
+}
+
+/* lambda */
+
+function isLambda(exp) {
+	return hasTag(exp, LAMBDA_KEY);
+}
+
+function lambdaParams(exp) {
+	return exp[1];
+}
+
+function lambdaBody(exp) {
+	return exp[2];
+}
+
+function attachEnv(exp, env) {
+	const params = lambdaParams(exp);
+	const body = lambdaBody(exp);
+	const taggedLambda = 
+		[LAMBDA_KEY, params, body, env];
+
+	return taggedLambda;
+}
+
+/* begin */
+
+function isBegin(exp) {
+	return hasTag(exp, BEGIN_KEY);
+}
+
+function beginActions(exp) {
+	return exp.slice(1);
+}
+
+function isLastExp(seq) {
+	// return seq.slice(1) == [];
+	return seq.slice(1).length == 0;
+}
+
+function firstExp(seq) {
+	return seq[0];
+}
+
+function restExps(seq) {
+	return seq[1];
+}
+
+/* functions */
+
+function getFunc(exp) {
+	return exp[0];
+}
+
+function getArgs(exp) {
+	return exp.slice(1);
+}
+
+function isPrimitive(func) {
+	return func in primitives;
+}
+
+/* application */
+
+function getParams(func) {
+	return func[1];
+}
+
+function getBody(func) {
+	// return func[2];
+	const body = func.slice(2);
+	body.pop();
+	return body;
+}
+
+function getEnv(func) {
+	return func[3];
+}
+
 
 /*************************************************/
 
-// some basic definitions for testing
+/* 
+	LIBRARY 
 
-lisp('(def x 3)');
-lisp('(def y 4)');
+	TODO:
 
-lisp('(def add1 (fun (x) (+ x 1)))');
-lisp('(def apply (fun (f x) (f x)))');
-lisp('(def addx (fun (y) (+ x y)))');
-lisp('(def ylppa (fun (x f) (f x)))');
-lisp('(def addn (fun (n) (fun (z) (+ z n))))');
+	It would be nice to have a bunch of strings defined
+	individually (and perhaps gathered into an array) 
+	and then a single load_library function to load 
+	them all into the interpreter.
+*/
 
-// the following function doesn't work. why? (good homework problem)
-// lisp('(def inc! (fun (x) (set! x (add1 x))))');
+/* list operations */
+
+lisp('(def nil (quote ()))');
+lisp('(def cons (fun (a b) (fun (m) (m a b))))');
+lisp('(def car (fun (p) (p (fun (a b) a))))');
+lisp('(def cdr (fun (p) (p (fun (a b) b))))');
+
+/* some recursive functions of various kinds */
 
 lisp('(def Y (fun (y) ((fun (f) (f f)) (fun (g) (y (fun (x) ((g g) x)))))))');
 lisp('(def tri (fun (t) (fun (n) (if (< n 2) n (+ n (t (- n 1)))))))');
@@ -547,22 +628,12 @@ lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) 
 lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
 lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
 
-/*
-list operations don't work right now because of problems
-with higher-order functions, but they should work otherwise
-*/
+/* other stuff */
 
-/*
-lisp('(def nil (quote ()))');
-lisp('(def cons (fun (a b) (fun (m) (m a b))))');
-lisp('(def car (fun (p) (p (fun (a b) a))))');
-lisp('(def cdr (fun (p) (p (fun (a b) b))))');
-*/
-
-
-
-
-
-
+lisp('(def add1 (fun (x) (+ x 1)))');
+lisp('(def apply (fun (f x) (f x)))');
+lisp('(def addx (fun (y) (+ x y)))');
+lisp('(def ylppa (fun (x f) (f x)))');
+lisp('(def addn (fun (n) (fun (z) (+ z n))))');
 
 

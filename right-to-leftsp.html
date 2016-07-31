@@ -21,22 +21,22 @@ Hey! Look! The following are equivalent: <br>
 		(((fun (x) (fun (y) (+ x y))) 3) 4)
 	</li>
 	<li>
-		$(4 (3 (((y x +) (y) fun) (x) fun)))
+		<b>$</b>(4 (3 (((y x +) (y) fun) (x) fun)))
 	</li>
 	<li>
-		(((fun (x) (fun (y) $(y x +))) 3) 4)
+		(((fun (x) (fun (y) <b>$</b>(y x +))) 3) 4)
 	</li>
 	<li>
-		$(4 (3 ($(fun (y) (+ x y)) (x) fun)))
+		<b>$</b>(4 (3 (<b>$</b>(fun (y) (+ x y)) (x) fun)))
 	</li>
 	<li>
-		$$(((fun (x) (fun (y) (+ x y))) 3) 4)
+		<b>$$</b>(((fun (x) (fun (y) (+ x y))) 3) 4)
 	</li>
 	<li>
-		$$$(4 (3 (((y x +) (y) fun) (x) fun)))
+		<b>$$$</b>(4 (3 (((y x +) (y) fun) (x) fun)))
 	</li>
 	<li>
-		$$$$(((fun (x) (fun (y) (+ x y))) 3) 4)
+		<b>$$$$</b>(((fun (x) (fun (y) (+ x y))) 3) 4)
 	</li>
 </ul>
 
@@ -53,7 +53,7 @@ Hey! Look! The following are equivalent: <br>
 
 <p id="result"></p>
 
-<script language="javascript" type="text/javascript" src="right-to-leftsp.js"></script>
+<script language="javascript" type="text/javascript" src="r2l.js"></script>
 
 <script language="javascript">
 window.onload = function () {
