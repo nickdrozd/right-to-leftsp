@@ -25,6 +25,7 @@ const DEF_KEY = 'def';
 const SET_KEY = 'set!';
 const LAMBDA_KEY = 'fun';
 const BEGIN_KEY = 'begin';
+const DELAY_KEY = 'delay';
 
 /* syntax */
 
@@ -43,6 +44,10 @@ function isCloseParen(char) {
 /* FLAGS */
 
 var DEBUG = 0;
+
+function debug() {
+	DEBUG = 1 - DEBUG;
+}
 
 /**************************************************/
 
@@ -295,6 +300,14 @@ function eval(exp, env) {
 		return evalSeq(actions, env);
 	}
 
+	// delay (special form)
+	else if (isDelay(exp)) { if (DEBUG) debugger;
+		const delayExp =
+			makeDelay(exp);
+
+		return envEval(delayExp);
+	}
+
 	// function application
 	else {
 		const func = getFunc(exp);
@@ -371,7 +384,7 @@ function makeFrame(vars, vals) {
 	return frame;
 }
 
-function extendEnv(vars, vals, base) {
+function extendEnv(vars, vals, base) { if (DEBUG) debugger;
 	const frame = makeFrame(vars, vals);
 	const extEnv = new Env(frame, base);
 	return extEnv;
@@ -565,6 +578,20 @@ function firstExp(seq) {
 
 function restExps(seq) {
 	return seq[1];
+}
+
+/* delay */
+
+function isDelay(exp) {
+	return hasTag(exp, DELAY_KEY);
+}
+
+function delayBody(exp) {
+	return exp[1];
+}
+
+function makeDelay(exp) {
+	return [LAMBDA_KEY, [], delayBody(exp)];
 }
 
 /* functions */
