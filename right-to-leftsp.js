@@ -238,58 +238,80 @@ function revParse(codeString) {
 /* EVAL */
 
 function eval(exp, env) {
+	const analyzed = analyze(exp);
+	return analyzed(env);
+}
 
-	const envEval = function(exp) {
-		return eval(exp, env);
-	}
+/* ANALYZE */
+
+function analyze(exp) {
 
 	// numbers etc
-	if (isSelfEvaluating(exp))
-		return exp;
+	if (isSelfEvaluating(exp)) {
+		return function (env) {
+			return exp;
+		};		
+	}
 
 	// variables
-	else if (isVariable(exp))
-		return lookup(exp, env);
+	else if (isVariable(exp)) {
+		return function(env) {
+			return lookup(exp, env);
+		};		
+	}
 
 	// quotations
-	else if (isQuote(exp))
-		return quotedText(exp);
+	else if (isQuote(exp)) {
+		const text = quotedText(exp);
 
+		return function(env) {
+			return text;
+		};	
+	}
+	
 	// conditionals
 	else if (isIf(exp)) {
-		const test = ifTest(exp);
-		const then = ifThen(exp);
-		const othw = ifOthw(exp);
+		const test = analyze(ifTest(exp));
+		const then = analyze(ifThen(exp));
+		const othw = analyze(ifOthw(exp));
 
-		if (isTrue(envEval(test)))
-			return envEval(then);
-		else
-			return envEval(othw);
+		return function(env) {
+			if (isTrue(test(env)))
+				return then(env);
+			else
+				return othw(env);
+		};
 	}
 		
 	// definition
 	else if (isDef(exp)) {
 		const variable = defVar(exp);
-		const value = defVal(exp);
-		const evalVal = envEval(value);
+		const value = analyze(defVal(exp));
 
-		return defineVar(variable, evalVal, env);
+		return function(env) {
+			return defineVar(variable, value(env), env);
+		};
 	}
 
 	// assignment
-	else if (isAss(exp)) {
+	else if (isAss(exp)) { if (DEBUG) debugger;
 		const variable = assVar(exp);
-		const value = assVal(exp);
+		const value = analyze(assVal(exp));
 
-		return setVar(variable, value, env);
+		return function(env) {
+			return setVar(variable, value(env), env);
+		};
 	}
 
 	// lambdas
 	else if (isLambda(exp)) { if (DEBUG) debugger;
-		const taggedLambda = 
-			attachEnv(exp, env);
+		const params = lambdaParams(exp);
+		const body = lambdaBody(exp);
+		const anBody = analyzeSeq(body);
 
-		return taggedLambda;
+		return function(env) {
+			return makeFunc(params, anBody, env);
+		};
 	}
 
 	// begins
@@ -297,7 +319,7 @@ function eval(exp, env) {
 		const actions = 
 			beginActions(exp);
 
-		return evalSeq(actions, env);
+		return analyzeSeq(actions);
 	}
 
 	// delay (special form)
@@ -305,20 +327,28 @@ function eval(exp, env) {
 		const delayExp =
 			makeDelay(exp);
 
-		return envEval(delayExp);
+		return analyze(delayExp);
 	}
 
 	// function application
 	else {
 		const func = getFunc(exp);
 		const args = getArgs(exp);
-		const evFunc = envEval(func);
-		const evArgs = args.map(envEval);
+		const anFunc = analyze(func);
+		const anArgs = args.map(analyze);
+
+		return function(env) {
+			const envFunc = anFunc(env);
+			const envArgs = 
+				anArgs.map(function(arg){
+					return arg(env);
+				});
 
 		if (isPrimitive(func))
-			return applyPrimitive(evFunc, evArgs)
-
-		return apply(evFunc, evArgs);
+			return applyPrimitive(envFunc, envArgs);
+		else
+			return apply(envFunc, envArgs);
+		}
 	}
 }
 
@@ -332,21 +362,29 @@ function apply(func, args) { if (DEBUG) debugger;
 	const appEnv = 
 		extendEnv(params, args, env);
 
-	return evalSeq(body, appEnv);
+	return body(appEnv);
 }
 
 /* eval / apply helpers */
 
-function evalSeq(exps, env) { if (DEBUG) debugger;
-	const first = firstExp(exps);
+function analyzeSeq(exps) { if (DEBUG) debugger;
+	const executeSeq = function(funcs, env) { if (DEBUG) debugger;
+		const car = funcs[0];
+		const cdr = funcs.slice(1);
 
-	if (isLastExp(exps))
-		return eval(first, env);
+		if (cdr.length == 0)
+			return car(env);
+		else {
+			car(env);
+			return executeSeq(cdr, env);
+		}
+	};
 
-	else {
-		eval(first, exps);
-		return evalSeq(restExps(exps), env);
-	}
+	const funcs = exps.map(analyze);
+
+	return function(env) {
+		return executeSeq(funcs, env);
+	};
 }
 
 function applyPrimitive(func, args) {
@@ -358,8 +396,15 @@ function applyPrimitive(func, args) {
 
 /* PUT IT ALL TOGETHERS */
 
-function lisp(codeString) {
-	return eval(parse(codeString), global_env);
+/* test for analyze */
+
+var syntax_count = 0;
+
+function lisp(codeString) { 
+	const val = eval(parse(codeString), global_env);
+	console.log(`syntax_count = ${syntax_count}`);
+	syntax_count = 0;
+	return val;
 }
 
 /***************************************************/
@@ -375,7 +420,7 @@ function Env(frame, enclosure) {
 	this.enclosure = enclosure;
 }
 
-function makeFrame(vars, vals) {
+function makeFrame(vars, vals) { if (DEBUG) debugger;
 	const frame = {};
 
 	for (var i = 0; i < vars.length; i++)
@@ -440,7 +485,7 @@ function defineVar(variable, value, env) { if (DEBUG) debugger;
 	return env.frame[variable] = value;
 }
 
-function setVar(variable, value, env) {
+function setVar(variable, value, env) {  if (DEBUG) debugger;
 	if (isEmptyEnv(env)) {
 		console.log(`unbound variable: ${variable}`);
 		return _UNBOUND;
@@ -469,6 +514,7 @@ function isVariable(exp) {
 }
 
 function getTag(exp) {
+	syntax_count++;
 	return exp[0];
 }
 
@@ -545,12 +591,10 @@ function lambdaParams(exp) {
 }
 
 function lambdaBody(exp) {
-	return exp[2];
+	return exp.slice(2);
 }
 
-function attachEnv(exp, env) {
-	const params = lambdaParams(exp);
-	const body = lambdaBody(exp);
+function makeFunc(params, body, env) { if (DEBUG) debugger;
 	const taggedLambda = 
 		[LAMBDA_KEY, params, body, env];
 
@@ -615,10 +659,10 @@ function getParams(func) {
 }
 
 function getBody(func) {
-	// return func[2];
-	const body = func.slice(2);
-	body.pop();
-	return body;
+	return func[2];
+	// const body = func.slice(2);
+	// body.pop();
+	// return body;
 }
 
 function getEnv(func) {
