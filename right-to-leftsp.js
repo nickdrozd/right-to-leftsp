@@ -29,17 +29,14 @@ const DELAY_KEY = 'delay';
 
 /* syntax */
 
-function isOpenParen(char) {
-	return char == '(' || 
-			char == '[' || 
-			char == '{';
-}
+const openers = /[([{]/;
+const closers = /[)\]}]/;
+const separators = /[\s]/;
 
-function isCloseParen(char) {
-	return char == ')' || 
-			char == ']' || 
-			char == '}';
-}
+const reverser = /[\$]/;
+const quoter = /[\']/;
+// how can variables be included in a regexp?
+const readerMacros = /[\$']/;
 
 /* FLAGS */
 
@@ -82,118 +79,151 @@ function debug() {
 	interchangeably? Neat, right?
 */
 
-/*
-	NOTE: This parser was written before I knew anything 
-	about how parsers are supposed to work. In 
-	particular, it's clearly the work of someone who 
-	hasn't thought to tokenize input before parsing. 
-	It's a miracle that the thing works at all, 
-	especially considering that it has the reverse-$ 
-	thing (which, in hindsight, is actually pretty cool.)
-
-	The whole thing needs to be rewritten and broken 
-	into smaller pieces.
-*/
-
-// convert number strings to real numbers
-function atom(token) {
-	var test = token - 0;
-	if (isNaN(test)) return token;
-	else return test;
-}
-
-// more special chars can be added later
-function notSpecial(char) {
-	return !(isOpenParen(char)) &&
-			char != '$';
-}
-
 function parse(codeString) {
-	var firstChar = codeString[0];
-	
-	// if the code is an atom
-	if (notSpecial(firstChar))
-		return atom(codeString);
+	return readTokens(tokenize(codeString));
+}
 
-	// if the code needs to be reversed
-	if (firstChar == '$')
-		return revParse(codeString.slice(1));
+// internal representation of 'parens'
+const _OP = '(';
+const _CP = ')';
+const _rev = '$';
+const _quo = '\'';
 
-	// if the code is a list
-	var result = [];
-	var remainder = codeString.slice(1,-1);
+function tokenize(codeString) {
+	const openerRegExp = new RegExp(openers, 'g');
+	const closerRegExp = new RegExp(closers, 'g');
 
-	while (remainder) {
+	// can we deal with all macros at once?
+	// const macroRegExp = new RegExp(readerMacros, 'g');
+
+	// temporary fix: deal with macros individually
+	const reverserRegExp = new RegExp(reverser, 'g');
+	const quoterRegExp = new RegExp(quoter, 'g');
+
+	// how to replace each macro with the right thing?
+	const tokens = 
+		codeString.replace(openerRegExp, ` ${_OP} `).
+			replace(closerRegExp, ` ${_CP} `).
+				replace(reverserRegExp, ` ${_rev} `).
+					replace(quoterRegExp, ` ${_quo} `).
+						split(separators);
+
+	function emptyStringFilter(token) {
+		return token != '';
+	}
+
+	return tokens.filter(emptyStringFilter);
+}
+
+function readTokens(tokens) {
+	if (tokens.length == 0)
+		return [];
+
+	const first = tokens[0];
+
+	// expression is not a list
+	if (notSpecial(first))
+		return makeAtom(first);
+
+	// expression is a list to be reversed
+	else if (first == _rev)
+		return reverseRead(tokens.slice(1));
+
+	// expression is a list
+	const result = [];
+	var remainder = tokens.slice(1,-1);
+
+	while (remainder.length != 0) {
 		var remFirst = remainder[0];
 
-		// if the first item is an atom
+		// first item of the list is an atom
 		if (notSpecial(remFirst)) {
-
-			var first = (remainder.split(' ',1))[0];
-
-			result.push(atom(first));
-
-			var space_index = remainder.indexOf(' ');
-			if (space_index >= 0)
-				remainder =
-					remainder.slice(space_index + 1);
-			else
-				return result;
+			result.push(makeAtom(remFirst));
+			remainder = remainder.slice(1);
 		}
 
-		// if the first item is itself a list
+		// first item of the list is a list
 		else {
-			// does the list need to be reversed?
-			var revSwitch = remFirst == '$' ? true : false;
+			const isReverseList = remFirst == _rev;
 
-			// find the end of the list
-			var start = revSwitch ? 1 : 0;
-			var open_paren = 1;
-			var close_paren = 0;
-			var i = revSwitch ? 2 : 1;
+			var start = 0;
+			while (!isOpenParen(remainder[start]))
+				start++;
+			const end = start + 
+				sublistEndIndex(remainder.slice(start));
+			const sublist = 
+				remainder.slice(start, end);
 
-			while (close_paren < open_paren) {
-				if (isOpenParen(remainder[i]))
-					open_paren += 1;
-				if (isCloseParen(remainder[i]))
-					close_paren += 1;
-				i += 1;
-			}
-
-			var snippet = remainder.slice(start ,i);
-
-			// reverse the snippet if need be
-			if (revSwitch)
-				result.push(revParse(snippet));
+			if (isReverseList)
+				result.push(reverseRead(sublist));
 			else
-				result.push(parse(snippet));
+				result.push(readTokens(sublist));
 
-			// keep going or quit
-			if (i < remainder.length)
-				remainder = (remainder.slice(i+1));
-			else
-				return result;
+			remainder = remainder.slice(end);
 		}
 	}
 
 	return result;
-}
 
-// reverse an array and all subarrays recursively
-function deepReverse(array) {
-	var newArray = array;
-	newArray.forEach(function(element) {
-		if (Array.isArray(element))
-			element = deepReverse(element);
-	})
-	newArray.reverse();
-	return newArray;
-}
+	/* helpers */
 
-function revParse(codeString) {
-	return deepReverse(parse(codeString));
-}
+	function makeAtom(token) {
+		const test = token - 0;
+		if (isNaN(test)) 
+			return token;
+		else 
+			return test;
+	}
 
+	function notSpecial(token) {
+		return token != _rev && 
+				token != _quo && 
+				token != _OP && 
+				token != _CP;
+	}
+
+	function isOpenParen(char) {
+		return openers.test(char);
+	}
+
+	function isCloseParen(char) {
+		return closers.test(char);
+	}
+
+	function sublistEndIndex(tokens) {
+		// tokens[0] is open paren
+		var i = 1; 
+		var op = 1;
+		var cp = 0;
+
+		while (cp < op) {
+			if (isOpenParen(tokens[i]))
+				op += 1;
+			if (isCloseParen(tokens[i]))
+				cp += 1;
+			i += 1;
+		}
+
+		return i;
+	}
+
+	function reverseRead(tokens) {
+		return deepReverse(readTokens(tokens));
+
+		function deepReverse(array) {
+			var newArray = array;
+
+			newArray.forEach(function(element) {
+				if (Array.isArray(element))
+					element = deepReverse(element);
+			})
+
+			newArray.reverse();
+
+			return newArray;
+		}
+	}
+}
 
 /***************************************************/
 
@@ -685,26 +715,26 @@ function getEnv(func) {
 
 /* list operations */
 
-lisp('(def nil (quote ()))');
-lisp('(def cons (fun (a b) (fun (m) (m a b))))');
-lisp('(def car (fun (p) (p (fun (a b) a))))');
-lisp('(def cdr (fun (p) (p (fun (a b) b))))');
+// lisp('(def nil (quote ()))');
+// lisp('(def cons (fun (a b) (fun (m) (m a b))))');
+// lisp('(def car (fun (p) (p (fun (a b) a))))');
+// lisp('(def cdr (fun (p) (p (fun (a b) b))))');
 
-/* some recursive functions of various kinds */
+// /* some recursive functions of various kinds */
 
-lisp('(def Y (fun (y) ((fun (f) (f f)) (fun (g) (y (fun (x) ((g g) x)))))))');
-lisp('(def tri (fun (t) (fun (n) (if (< n 2) n (+ n (t (- n 1)))))))');
-lisp('(def triangular (fun (n) (if (< n 2) n (+ n (triangular (- n 1))))))');
-lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) (- n 1))))))))');
-lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
-lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
+// lisp('(def Y (fun (y) ((fun (f) (f f)) (fun (g) (y (fun (x) ((g g) x)))))))');
+// lisp('(def tri (fun (t) (fun (n) (if (< n 2) n (+ n (t (- n 1)))))))');
+// lisp('(def triangular (fun (n) (if (< n 2) n (+ n (triangular (- n 1))))))');
+// lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) (- n 1))))))))');
+// lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
+// lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
 
-/* other stuff */
+// /* other stuff */
 
-lisp('(def add1 (fun (x) (+ x 1)))');
-lisp('(def apply (fun (f x) (f x)))');
-lisp('(def addx (fun (y) (+ x y)))');
-lisp('(def ylppa (fun (x f) (f x)))');
-lisp('(def addn (fun (n) (fun (z) (+ z n))))');
+// lisp('(def add1 (fun (x) (+ x 1)))');
+// lisp('(def apply (fun (f x) (f x)))');
+// lisp('(def addx (fun (y) (+ x y)))');
+// lisp('(def ylppa (fun (x f) (f x)))');
+// lisp('(def addn (fun (n) (fun (z) (+ z n))))');
 
 
