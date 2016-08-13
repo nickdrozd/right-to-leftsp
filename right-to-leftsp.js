@@ -20,12 +20,20 @@
 /* keywords */
 
 const QUOTE_KEY = 'quote';
+const BEGIN_KEY = 'begin';
+
 const IF_KEY = 'if';
+const AND_KEY = 'and';
+const OR_KEY = 'or';
+
 const DEF_KEY = 'def';
 const SET_KEY = 'set!';
+
 const LAMBDA_KEY = 'fun';
-const BEGIN_KEY = 'begin';
 const DELAY_KEY = 'delay';
+
+const TRUE_KEY = '#t';
+const FALSE_KEY = '#f';
 
 /* syntax */
 
@@ -44,6 +52,33 @@ var DEBUG = 0;
 
 function debug() {
 	DEBUG = 1 - DEBUG;
+}
+
+/**************************************************/
+
+/* LISP READER */
+
+function lisp(codeString) { 
+	if (! parensBalanced(codeString))
+		return "BAD SYNTAX -- parentheses unbalanced!"
+	
+	const parsed = parse(codeString);
+	const val = eval(parsed, global_env);
+	return val;
+}
+
+function parensBalanced(codeString) {
+	var op = 0;
+	var cp = 0;
+
+	for (var i = 0; i < codeString.length; i++) {
+		if (isOpenParen(codeString[i]))
+			op++;
+		if (isCloseParen(codeString[i]))
+			cp++;
+	}
+
+	return op == cp;
 }
 
 /**************************************************/
@@ -83,7 +118,7 @@ function parse(codeString) {
 	return readTokens(tokenize(codeString));
 }
 
-// internal representation of 'parens'
+// internal representations
 const _OP = '(';
 const _CP = ')';
 const _rev = '$';
@@ -115,7 +150,7 @@ function tokenize(codeString) {
 	return tokens.filter(emptyStringFilter);
 }
 
-function readTokens(tokens) {
+function readTokens(tokens) { if (DEBUG) debugger;
 	if (tokens.length == 0)
 		return [];
 
@@ -128,6 +163,10 @@ function readTokens(tokens) {
 	// expression is a list to be reversed
 	else if (first == _rev)
 		return reverseRead(tokens.slice(1));
+
+	// expression is a quotation
+	else if (first == _quo)
+		return readQuote(tokens.slice(1));
 
 	// expression is a list
 	const result = [];
@@ -142,10 +181,19 @@ function readTokens(tokens) {
 			remainder = remainder.slice(1);
 		}
 
+		// first item is a quotation
+		else if (remFirst == _quo) {
+			var start = 0;
+			while (!isOpenParen(remainder[start]))
+				start++;
+			const end = start + 
+				sublistEndIndex(remainder.slice(start));
+			const sublist = 
+				remainder.slice(start, end);
+		}
+
 		// first item of the list is a list
 		else {
-			const isReverseList = remFirst == _rev;
-
 			var start = 0;
 			while (!isOpenParen(remainder[start]))
 				start++;
@@ -154,8 +202,10 @@ function readTokens(tokens) {
 			const sublist = 
 				remainder.slice(start, end);
 
-			if (isReverseList)
+			if (remFirst == _rev)
 				result.push(reverseRead(sublist));
+			else if (remFirst == _quo)
+				result.push(readQuote(sublist));
 			else
 				result.push(readTokens(sublist));
 
@@ -166,6 +216,27 @@ function readTokens(tokens) {
 	return result;
 
 	/* helpers */
+
+	function reverseRead(tokens) {
+		return deepReverse(readTokens(tokens));
+
+		function deepReverse(array) {
+			var newArray = array;
+
+			newArray.forEach(function(element) {
+				if (Array.isArray(element))
+					element = deepReverse(element);
+			})
+
+			newArray.reverse();
+
+			return newArray;
+		}
+	}
+
+	function readQuote(tokens) {
+		return makeQuote(readTokens(tokens));
+	}
 
 	function makeAtom(token) {
 		const test = token - 0;
@@ -182,12 +253,8 @@ function readTokens(tokens) {
 				token != _CP;
 	}
 
-	function isOpenParen(char) {
-		return openers.test(char);
-	}
-
-	function isCloseParen(char) {
-		return closers.test(char);
+	function isMacro(token) {
+		return readerMacros.test(token);
 	}
 
 	function sublistEndIndex(tokens) {
@@ -205,23 +272,6 @@ function readTokens(tokens) {
 		}
 
 		return i;
-	}
-
-	function reverseRead(tokens) {
-		return deepReverse(readTokens(tokens));
-
-		function deepReverse(array) {
-			var newArray = array;
-
-			newArray.forEach(function(element) {
-				if (Array.isArray(element))
-					element = deepReverse(element);
-			})
-
-			newArray.reverse();
-
-			return newArray;
-		}
 	}
 }
 
@@ -312,6 +362,12 @@ function analyze(exp) {
 				return othw(env);
 		};
 	}
+
+	else if (isAnd(exp))
+		return analyze(makeAnd(andExps(exp)));
+		
+	else if (isOr(exp))
+		return analyze(makeOr(orExps(exp)));
 		
 	// definition
 	else if (isDef(exp)) {
@@ -424,19 +480,6 @@ function applyPrimitive(func, args) {
 	return func.apply(this, arglist);
 }
 
-/* PUT IT ALL TOGETHERS */
-
-/* test for analyze */
-
-var syntax_count = 0;
-
-function lisp(codeString) { 
-	const val = eval(parse(codeString), global_env);
-	console.log(`syntax_count = ${syntax_count}`);
-	syntax_count = 0;
-	return val;
-}
-
 /***************************************************/
 
 /*
@@ -534,6 +577,14 @@ function setVar(variable, value, env) {  if (DEBUG) debugger;
 
 /* low-level helpers */
 
+function isOpenParen(char) {
+	return openers.test(char);
+}
+
+function isCloseParen(char) {
+	return closers.test(char);
+}
+
 function isSelfEvaluating(exp) {
 	const type = typeof(exp);
 	return type == 'number' || type == 'boolean';
@@ -544,7 +595,6 @@ function isVariable(exp) {
 }
 
 function getTag(exp) {
-	syntax_count++;
 	return exp[0];
 }
 
@@ -560,6 +610,10 @@ function isQuote(exp) {
 
 function quotedText(exp) {
 	return exp[1];
+}
+
+function makeQuote(exp) {
+	return [QUOTE_KEY, exp];
 }
 
 /* if */
@@ -581,7 +635,54 @@ function ifOthw(exp) {
 }
 
 function isTrue(exp) {
-	return exp != false;
+	return exp != false
+		exp != Infinity;
+}
+
+/* booleans */
+
+function isAnd(exp) {
+	return hasTag(exp, AND_KEY);
+}
+
+function andExps(exp) { 
+	return exp.slice(1);
+}
+
+function makeAnd(seq) { 
+	if (seq.length == 0)
+		return TRUE_KEY;
+
+	else {
+		const first = firstExp(seq);
+		const rest = seq.slice(1); // restExps???
+		const transform = makeAnd(rest);
+		const result = 
+			[IF_KEY, first, transform, FALSE_KEY];
+		return result;
+	}
+}
+
+function isOr(exp) {
+	return hasTag(exp, OR_KEY);
+}
+
+function orExps(exp) {
+	return exp.slice(1);
+}
+
+function makeOr(seq) {
+	if (seq.length == 0)
+		return FALSE_KEY;
+
+	else {
+		const first = firstExp(seq);
+		const rest = seq.slice(1); // restExps???
+		const transform = makeOr(rest);
+		const result = 
+			[IF_KEY, first, TRUE_KEY, transform];
+		return result;
+	}
 }
 
 /* def / ass */
@@ -652,6 +753,7 @@ function firstExp(seq) {
 
 function restExps(seq) {
 	return seq[1];
+	// return seq.slice(1);
 }
 
 /* delay */
@@ -715,26 +817,26 @@ function getEnv(func) {
 
 /* list operations */
 
-// lisp('(def nil (quote ()))');
-// lisp('(def cons (fun (a b) (fun (m) (m a b))))');
-// lisp('(def car (fun (p) (p (fun (a b) a))))');
-// lisp('(def cdr (fun (p) (p (fun (a b) b))))');
+lisp('(def nil (quote ()))');
+lisp('(def cons (fun (a b) (fun (m) (m a b))))');
+lisp('(def car (fun (p) (p (fun (a b) a))))');
+lisp('(def cdr (fun (p) (p (fun (a b) b))))');
 
-// /* some recursive functions of various kinds */
+/* some recursive functions of various kinds */
 
-// lisp('(def Y (fun (y) ((fun (f) (f f)) (fun (g) (y (fun (x) ((g g) x)))))))');
-// lisp('(def tri (fun (t) (fun (n) (if (< n 2) n (+ n (t (- n 1)))))))');
-// lisp('(def triangular (fun (n) (if (< n 2) n (+ n (triangular (- n 1))))))');
-// lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) (- n 1))))))))');
-// lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
-// lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
+lisp('(def Y (fun (y) ((fun (f) (f f)) (fun (g) (y (fun (x) ((g g) x)))))))');
+lisp('(def tri (fun (t) (fun (n) (if (< n 2) n (+ n (t (- n 1)))))))');
+lisp('(def triangular (fun (n) (if (< n 2) n (+ n (triangular (- n 1))))))');
+lisp('(def tri_tri ((fun (f) (f f)) (fun (t) (fun (n) (if (< n 2) n (+ n ((t t) (- n 1))))))))');
+lisp('(def fib (fun (n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2))))))');
+lisp('(def fib_it (fun (n) (def loop (fun (a b count) (if (= (add1 count) n) b (loop b (+ a b) (add1 count))))) (loop 0 1 0)))');
 
-// /* other stuff */
+/* other stuff */
 
-// lisp('(def add1 (fun (x) (+ x 1)))');
-// lisp('(def apply (fun (f x) (f x)))');
-// lisp('(def addx (fun (y) (+ x y)))');
-// lisp('(def ylppa (fun (x f) (f x)))');
-// lisp('(def addn (fun (n) (fun (z) (+ z n))))');
+lisp('(def add1 (fun (x) (+ x 1)))');
+lisp('(def apply (fun (f x) (f x)))');
+lisp('(def addx (fun (y) (+ x y)))');
+lisp('(def ylppa (fun (x f) (f x)))');
+lisp('(def addn (fun (n) (fun (z) (+ z n))))');
 
 
