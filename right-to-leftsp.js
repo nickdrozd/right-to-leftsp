@@ -523,6 +523,12 @@ const primitives = {
 	// types
 	'null?' : function(s){return s.length==0},
 
+	// list operations
+	'cons': function(x,y){return [x, y]},
+	'car' : function(s){return s[0]},
+	'cdr' : function(s){return s.slice(1)},
+	'list': list,
+
 	// truth conditions -- should these be different?
 	'#f' : false,
 	'#t' : true,
@@ -635,7 +641,7 @@ function ifOthw(exp) {
 }
 
 function isTrue(exp) {
-	return exp != false
+	return exp != false && 
 		exp != Infinity;
 }
 
@@ -818,9 +824,9 @@ function getEnv(func) {
 /* list operations */
 
 lisp('(def nil (quote ()))');
-lisp('(def cons (fun (a b) (fun (m) (m a b))))');
-lisp('(def car (fun (p) (p (fun (a b) a))))');
-lisp('(def cdr (fun (p) (p (fun (a b) b))))');
+lisp('(def cons_lambda (fun (a b) (fun (m) (m a b))))');
+lisp('(def car_lambda (fun (p) (p (fun (a b) a))))');
+lisp('(def cdr_lambda (fun (p) (p (fun (a b) b))))');
 
 /* some recursive functions of various kinds */
 
@@ -840,3 +846,13 @@ lisp('(def ylppa (fun (x f) (f x)))');
 lisp('(def addn (fun (n) (fun (z) (+ z n))))');
 
 
+/* actual js functions for primitives (lazy? stupid?) */
+
+function list() {
+	args = Array.prototype.slice.call(arguments);
+	if (args.length == 0)
+		return [];
+	else
+		return [args[0],
+				list.apply(this,args.slice(1))];
+}
